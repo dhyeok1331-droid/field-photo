@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>농업현장점검 사진촬영</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@9.1.0/ol.css">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, 'Noto Sans KR', sans-serif; background:#f5f5f5; color:#222; overscroll-behavior:none; }
+
+/* 헤더 */
+.header { background:#1a5f2a; color:#fff; padding:12px 16px; display:flex; align-items:center; gap:8px; }
+.header h1 { font-size:16px; font-weight:600; }
+.header .icon { font-size:20px; }
+
+/* 상태 카드 */
+.status-card { background:#fff; margin:8px; border-radius:10px; padding:12px 14px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.status-card .label { font-size:12px; color:#888; margin-bottom:4px; }
+.status-card .address { font-size:15px; font-weight:600; color:#1a5f2a; min-height:22px; }
+.status-card .meta { font-size:12px; color:#666; margin-top:4px; display:flex; gap:12px; }
+.status-card .actions { display:flex; gap:8px; margin-top:8px; }
+.btn-sm { padding:6px 12px; border-radius:6px; border:1px solid #ddd; background:#fff; font-size:12px; color:#555; cursor:pointer; }
+.btn-sm:active { background:#f0f0f0; }
+.btn-sm.primary { background:#1a5f2a; color:#fff; border-color:#1a5f2a; }
+
+/* 지도 영역 */
+.map-section { margin:8px; border-radius:10px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.08); position:relative; }
+.map-section .map-label { position:absolute; top:8px; left:8px; z-index:10; background:rgba(26,95,42,.9); color:#fff; padding:4px 10px; border-radius:6px; font-size:11px; font-weight:500; }
+#map { width:100%; height:220px; }
+
+/* 선택된 필지 정보 */
+.selected-parcel { background:#e8f5e9; margin:0 8px; border-radius:10px; padding:10px 14px; display:none; }
+.selected-parcel .sp-label { font-size:11px; color:#2e7d32; font-weight:500; }
+.selected-parcel .sp-address { font-size:14px; font-weight:600; color:#1b5e20; margin-top:2px; }
+
+/* 카메라 영역 */
+.camera-section { margin:8px; border-radius:10px; overflow:hidden; position:relative; background:#000; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+#cameraView { width:100%; display:block; max-height:300px; object-fit:cover; }
+.watermark-preview { position:absolute; bottom:0; left:0; right:0; background:rgba(0,0,0,.55); color:#fff; padding:8px 12px; font-size:12px; line-height:1.5; pointer-events:none; }
+.watermark-preview .wp-addr { font-weight:600; font-size:13px; }
+
+/* 촬영 버튼 */
+.capture-bar { padding:12px 16px; display:flex; gap:10px; justify-content:center; }
+.btn-capture { width:64px; height:64px; border-radius:50%; border:4px solid #1a5f2a; background:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+.btn-capture:active { background:#e8f5e9; }
+.btn-capture .inner { width:48px; height:48px; border-radius:50%; background:#1a5f2a; }
+
+/* 미리보기 */
+.preview-section { display:none; margin:8px; border-radius:10px; overflow:hidden; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+#previewCanvas { width:100%; display:block; }
+.preview-actions { display:flex; gap:10px; padding:12px; justify-content:center; }
+.btn-action { padding:10px 24px; border-radius:8px; border:none; font-size:14px; font-weight:600; cursor:pointer; }
+.btn-save { background:#1a5f2a; color:#fff; }
+.btn-retake { background:#f5f5f5; color:#555; border:1px solid #ddd; }
+
+/* 로딩 */
+.loading { display:flex; align-items:center; gap:8px; }
+.loading .spinner { width:16px; height:16px; border:2px solid #ddd; border-top-color:#1a5f2a; border-radius:50%; animation:spin .6s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* 수동 입력 모달 */
+.modal-overlay { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,.5); z-index:100; align-items:center; justify-content:center; }
+.modal-overlay.show { display:flex; }
+.modal { background:#fff; border-radius:12px; padding:20px; width:90%; max-width:340px; }
+.modal h3 { font-size:16px; margin-bottom:12px; }
+.modal input { width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; margin-bottom:8px; }
+.modal .modal-actions { display:flex; gap:8px; margin-top:8px; }
+.modal .modal-actions button { flex:1; }
+
+/* 안내 메시지 */
+.guide-msg { text-align:center; padding:8px; font-size:12px; color:#888; }
+</style>
+</head>
+<body>
+
+<!-- 헤더 -->
+<div class="header">
+  <span class="icon">🌾</span>
+  <h1>농업현장점검 사진촬영</h1>
+</div>
+
+<!-- GPS 상태 카드 -->
+<div class="status-card" id="statusCard">
+  <div class="label">📍 현재 위치 (GPS)</div>
+  <div class="address" id="gpsAddress">
+    <div class="loading"><div class="spinner"></div><span style="font-size:13px;color:#888;">GPS 수신 중...</span></div>
+  </div>
+  <div class="meta" id="gpsMeta" style="display:none;">
+    <span id="gpsCoord"></span>
+    <span id="gpsTime"></span>
+  </div>
+  <div class="actions">
+    <button class="btn-sm" onclick="refreshGPS()">🔄 재수신</button>
+    <button class="btn-sm" onclick="openManualInput()">✏️ 직접입력</button>
+  </div>
+</div>
+
+<!-- 지도 -->
+<div class="map-section">
+  <div class="map-label">지도에서 필지를 터치하세요</div>
+  <div id="map"></div>
+</div>
+
+<!-- 선택된 필지 -->
+<div class="selected-parcel" id="selectedParcel">
+  <div class="sp-label">✅ 촬영할 필지 (지도에서 선택됨)</div>
+  <div class="sp-address" id="selectedAddress"></div>
+</div>
+
+<!-- 카메라 -->
+<div class="camera-section" id="cameraSection" style="display:none;">
+  <video id="cameraView" autoplay playsinline muted></video>
+  <div class="watermark-preview" id="watermarkPreview">
+    <div class="wp-addr" id="wpAddr">지번 정보 없음</div>
+    <div id="wpTime"></div>
+  </div>
+</div>
+
+<!-- 촬영 버튼 -->
+<div class="capture-bar" id="captureBar" style="display:none;">
+  <button class="btn-capture" onclick="capturePhoto()">
+    <div class="inner"></div>
+  </button>
+</div>
+<div class="guide-msg" id="captureGuide" style="display:none;">촬영 버튼을 눌러 사진을 찍으세요</div>
+
+<!-- 미리보기 -->
+<div class="preview-section" id="previewSection">
+  <canvas id="previewCanvas"></canvas>
+  <div class="preview-actions">
+    <button class="btn-action btn-save" onclick="savePhoto()">💾 갤러리에 저장</button>
+    <button class="btn-action btn-retake" onclick="retakePhoto()">🔄 재촬영</button>
+  </div>
+</div>
+
+<!-- 수동 입력 모달 -->
+<div class="modal-overlay" id="manualModal">
+  <div class="modal">
+    <h3>✏️ 지번 직접 입력</h3>
+    <input type="text" id="manualAddr" placeholder="예) 충남 서천군 장항읍 OO리 123-4">
+    <input type="text" id="manualJimok" placeholder="지목 (예: 전, 답, 임야)">
+    <div class="modal-actions">
+      <button class="btn-action btn-retake" onclick="closeManualInput()">취소</button>
+      <button class="btn-action btn-save" onclick="applyManualInput()">적용</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/ol@9.1.0/dist/ol.js"></script>
+<script>
+// ===== 설정 =====
+const VWORLD_KEY = 'F0F38350-BF69-3372-8A05-4C0AEB138BE6';
+
+// ===== 상태 =====
+let currentLat = null;
+let currentLng = null;
+let currentAddress = '';
+let currentJimok = '';
+let selectedAddress = '';
+let selectedJimok = '';
+let olMap = null;
+let markerLayer = null;
+let cameraStream = null;
+
+// ===== 초기화 =====
+window.addEventListener('load', function() {
+  initMap();
+  refreshGPS();
+  startTimeUpdate();
+});
+
+// ===== GPS =====
+function refreshGPS() {
+  document.getElementById('gpsAddress').innerHTML = '<div class="loading"><div class="spinner"></div><span style="font-size:13px;color:#888;">GPS 수신 중...</span></div>';
+  document.getElementById('gpsMeta').style.display = 'none';
+
+  if (!navigator.geolocation) {
+    document.getElementById('gpsAddress').textContent = 'GPS를 지원하지 않는 브라우저입니다';
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    function(pos) {
+      currentLat = pos.coords.latitude;
+      currentLng = pos.coords.longitude;
+      document.getElementById('gpsCoord').textContent = currentLat.toFixed(6) + ', ' + currentLng.toFixed(6);
+      document.getElementById('gpsMeta').style.display = 'flex';
+
+      // 지도 이동
+      moveMapTo(currentLng, currentLat);
+
+      // 지번 조회
+      reverseGeocode(currentLng, currentLat, function(addr, jimok) {
+        currentAddress = addr;
+        currentJimok = jimok;
+        document.getElementById('gpsAddress').textContent = addr + (jimok ? ' | ' + jimok : '');
+
+        // 기본 선택으로 설정
+        if (!selectedAddress) {
+          setSelectedParcel(addr, jimok);
+        }
+      });
+
+      // 카메라 시작
+      startCamera();
+    },
+    function(err) {
+      var msg = 'GPS 수신 실패';
+      if (err.code === 1) msg = 'GPS 권한을 허용해주세요';
+      else if (err.code === 2) msg = 'GPS 신호를 수신할 수 없습니다';
+      else if (err.code === 3) msg = 'GPS 수신 시간 초과';
+      document.getElementById('gpsAddress').textContent = msg;
+    },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+  );
+}
+
+// ===== VWorld Geocoder (좌표→지번) =====
+function reverseGeocode(lng, lat, callback) {
+  // JSONP 방식으로 VWorld API 호출
+  var callbackName = 'vworldCallback_' + Date.now();
+  var script = document.createElement('script');
+  var url = 'https://api.vworld.kr/req/address'
+    + '?service=address'
+    + '&request=getAddress'
+    + '&version=2.0'
+    + '&crs=epsg:4326'
+    + '&format=json'
+    + '&type=parcel'
+    + '&zipcode=false'
+    + '&simple=false'
+    + '&point=' + lng + ',' + lat
+    + '&key=' + VWORLD_KEY
+    + '&callback=' + callbackName;
+
+  window[callbackName] = function(data) {
+    try {
+      if (data.response.status === 'OK' && data.response.result && data.response.result.length > 0) {
+        var result = data.response.result[0];
+        var addr = result.text || '';
+        var jimok = '';
+        // structure에서 지목 추출
+        if (result.structure) {
+          jimok = result.structure.level4L || '';
+        }
+        callback(addr, jimok);
+      } else {
+        callback('주소를 찾을 수 없습니다', '');
+      }
+    } catch(e) {
+      callback('주소 조회 오류', '');
+    }
+    // cleanup
+    delete window[callbackName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+  };
+
+  script.onerror = function() {
+    callback('API 연결 실패', '');
+    delete window[callbackName];
+    if (script.parentNode) script.parentNode.removeChild(script);
+  };
+
+  script.src = url;
+  document.head.appendChild(script);
+}
+
+// ===== OpenLayers 지도 =====
+function initMap() {
+  // VWorld 배경지도
+  var vworldBase = new ol.layer.Tile({
+    source: new ol.source.XYZ({
+      url: 'https://api.vworld.kr/req/wmts/1.0.0/' + VWORLD_KEY + '/Base/{z}/{y}/{x}.png',
+      crossOrigin: 'anonymous'
+    }),
+    zIndex: 1
+  });
+
+  // VWorld 하이브리드 (도로명/지명 표시)
+  var vworldHybrid = new ol.layer.Tile({
+    source: new ol.source.XYZ({
+      url: 'https://api.vworld.kr/req/wmts/1.0.0/' + VWORLD_KEY + '/Hybrid/{z}/{y}/{x}.png',
+      crossOrigin: 'anonymous'
+    }),
+    zIndex: 3
+  });
+
+  // 마커 레이어
+  markerLayer = new ol.layer.Vector({
+    source: new ol.source.Vector(),
+    zIndex: 10
+  });
+
+  olMap = new ol.Map({
+    target: 'map',
+    layers: [vworldBase, vworldHybrid, markerLayer],
+    view: new ol.View({
+      center: ol.proj.fromLonLat([126.688, 36.08]),
+      zoom: 17,
+      maxZoom: 19,
+      minZoom: 5
+    }),
+    controls: ol.control.defaults.defaults({ zoom: true, rotate: false, attribution: false })
+  });
+
+  // 지도 클릭 → 지번 조회
+  olMap.on('singleclick', function(evt) {
+    var coords = ol.proj.toLonLat(evt.coordinate);
+    var clickLng = coords[0];
+    var clickLat = coords[1];
+
+    // 클릭 위치에 마커
+    addClickMarker(evt.coordinate);
+
+    // 지번 조회
+    reverseGeocode(clickLng, clickLat, function(addr, jimok) {
+      setSelectedParcel(addr, jimok);
+    });
+  });
+}
+
+function moveMapTo(lng, lat) {
+  if (!olMap) return;
+  var view = olMap.getView();
+  view.animate({ center: ol.proj.fromLonLat([lng, lat]), zoom: 18, duration: 500 });
+
+  // 내 위치 마커
+  var source = markerLayer.getSource();
+  // 기존 GPS 마커 삭제
+  var features = source.getFeatures();
+  features.forEach(function(f) {
+    if (f.get('type') === 'gps') source.removeFeature(f);
+  });
+
+  var gpsMarker = new ol.Feature({
+    geometry: new ol.geom.Point(ol.proj.fromLonLat([lng, lat])),
+    type: 'gps'
+  });
+  gpsMarker.setStyle(new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 8,
+      fill: new ol.style.Fill({ color: '#1a5f2a' }),
+      stroke: new ol.style.Stroke({ color: '#fff', width: 3 })
+    })
+  }));
+  source.addFeature(gpsMarker);
+}
+
+function addClickMarker(coordinate) {
+  var source = markerLayer.getSource();
+  // 기존 클릭 마커 삭제
+  var features = source.getFeatures();
+  features.forEach(function(f) {
+    if (f.get('type') === 'click') source.removeFeature(f);
+  });
+
+  var clickMarker = new ol.Feature({
+    geometry: new ol.geom.Point(coordinate),
+    type: 'click'
+  });
+  clickMarker.setStyle(new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 10,
+      fill: new ol.style.Fill({ color: 'rgba(255,87,34,.7)' }),
+      stroke: new ol.style.Stroke({ color: '#fff', width: 2 })
+    })
+  }));
+  source.addFeature(clickMarker);
+}
+
+// ===== 선택 필지 설정 =====
+function setSelectedParcel(addr, jimok) {
+  selectedAddress = addr;
+  selectedJimok = jimok;
+
+  var el = document.getElementById('selectedParcel');
+  el.style.display = 'block';
+  document.getElementById('selectedAddress').textContent = addr + (jimok ? ' | 지목: ' + jimok : '');
+
+  // 워터마크 갱신
+  updateWatermark();
+}
+
+// ===== 카메라 =====
+function startCamera() {
+  if (cameraStream) return; // 이미 실행중
+
+  var constraints = {
+    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+    audio: false
+  };
+
+  navigator.mediaDevices.getUserMedia(constraints)
+    .then(function(stream) {
+      cameraStream = stream;
+      var video = document.getElementById('cameraView');
+      video.srcObject = stream;
+      document.getElementById('cameraSection').style.display = 'block';
+      document.getElementById('captureBar').style.display = 'flex';
+      document.getElementById('captureGuide').style.display = 'block';
+    })
+    .catch(function(err) {
+      console.error('카메라 오류:', err);
+      alert('카메라를 실행할 수 없습니다.\n카메라 권한을 허용해주세요.');
+    });
+}
+
+// ===== 워터마크 업데이트 =====
+function updateWatermark() {
+  var addr = selectedAddress || currentAddress || '위치 정보 없음';
+  var jimok = selectedJimok || currentJimok;
+  document.getElementById('wpAddr').textContent = addr + (jimok ? ' | ' + jimok : '');
+}
+
+function startTimeUpdate() {
+  function update() {
+    var now = new Date();
+    var y = now.getFullYear();
+    var m = String(now.getMonth()+1).padStart(2,'0');
+    var d = String(now.getDate()).padStart(2,'0');
+    var h = String(now.getHours()).padStart(2,'0');
+    var mi = String(now.getMinutes()).padStart(2,'0');
+    var s = String(now.getSeconds()).padStart(2,'0');
+    var timeStr = y + '-' + m + '-' + d + '  ' + h + ':' + mi + ':' + s;
+    var el = document.getElementById('wpTime');
+    if (el) el.textContent = timeStr;
+    var el2 = document.getElementById('gpsTime');
+    if (el2) el2.textContent = timeStr;
+  }
+  update();
+  setInterval(update, 1000);
+}
+
+// ===== 사진 촬영 =====
+function capturePhoto() {
+  var video = document.getElementById('cameraView');
+  if (!video.srcObject) { alert('카메라가 연결되지 않았습니다.'); return; }
+
+  var canvas = document.getElementById('previewCanvas');
+  var ctx = canvas.getContext('2d');
+
+  // 비디오 원본 해상도
+  var vw = video.videoWidth;
+  var vh = video.videoHeight;
+  canvas.width = vw;
+  canvas.height = vh;
+
+  // 비디오 프레임 그리기
+  ctx.drawImage(video, 0, 0, vw, vh);
+
+  // 워터마크 영역
+  var barH = Math.max(vh * 0.08, 60);
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, vh - barH, vw, barH);
+
+  // 워터마크 텍스트
+  var addr = selectedAddress || currentAddress || '위치 정보 없음';
+  var jimok = selectedJimok || currentJimok;
+  var addrText = addr + (jimok ? ' | ' + jimok : '');
+
+  var now = new Date();
+  var y = now.getFullYear();
+  var mo = String(now.getMonth()+1).padStart(2,'0');
+  var d = String(now.getDate()).padStart(2,'0');
+  var h = String(now.getHours()).padStart(2,'0');
+  var mi = String(now.getMinutes()).padStart(2,'0');
+  var s = String(now.getSeconds()).padStart(2,'0');
+  var timeText = y + '-' + mo + '-' + d + '  ' + h + ':' + mi + ':' + s;
+
+  var fontSize1 = Math.max(vw * 0.025, 16);
+  var fontSize2 = Math.max(vw * 0.02, 13);
+
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold ' + fontSize1 + 'px -apple-system, sans-serif';
+  ctx.fillText(addrText, 16, vh - barH + fontSize1 + 8);
+
+  ctx.font = fontSize2 + 'px -apple-system, sans-serif';
+  ctx.fillText(timeText, 16, vh - barH + fontSize1 + fontSize2 + 16);
+
+  // UI 전환
+  document.getElementById('cameraSection').style.display = 'none';
+  document.getElementById('captureBar').style.display = 'none';
+  document.getElementById('captureGuide').style.display = 'none';
+  document.getElementById('previewSection').style.display = 'block';
+}
+
+// ===== 사진 저장 =====
+function savePhoto() {
+  var canvas = document.getElementById('previewCanvas');
+  var link = document.createElement('a');
+
+  var now = new Date();
+  var fname = '현장점검_' + now.getFullYear()
+    + String(now.getMonth()+1).padStart(2,'0')
+    + String(now.getDate()).padStart(2,'0')
+    + '_' + String(now.getHours()).padStart(2,'0')
+    + String(now.getMinutes()).padStart(2,'0')
+    + String(now.getSeconds()).padStart(2,'0')
+    + '.jpg';
+
+  canvas.toBlob(function(blob) {
+    var url = URL.createObjectURL(blob);
+    link.href = url;
+    link.download = fname;
+    link.click();
+    URL.revokeObjectURL(url);
+    alert('사진이 저장되었습니다.\n파일명: ' + fname);
+  }, 'image/jpeg', 0.92);
+}
+
+// ===== 재촬영 =====
+function retakePhoto() {
+  document.getElementById('previewSection').style.display = 'none';
+  document.getElementById('cameraSection').style.display = 'block';
+  document.getElementById('captureBar').style.display = 'flex';
+  document.getElementById('captureGuide').style.display = 'block';
+}
+
+// ===== 수동 입력 =====
+function openManualInput() {
+  document.getElementById('manualAddr').value = selectedAddress || currentAddress || '';
+  document.getElementById('manualJimok').value = selectedJimok || currentJimok || '';
+  document.getElementById('manualModal').classList.add('show');
+}
+
+function closeManualInput() {
+  document.getElementById('manualModal').classList.remove('show');
+}
+
+function applyManualInput() {
+  var addr = document.getElementById('manualAddr').value.trim();
+  var jimok = document.getElementById('manualJimok').value.trim();
+  if (!addr) { alert('주소를 입력해주세요.'); return; }
+  setSelectedParcel(addr, jimok);
+  closeManualInput();
+}
+</script>
+</body>
+</html>
