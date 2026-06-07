@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Claude Code
+.claude/
+
+# Flutter
+field_photo_app/.dart_tool/
+field_photo_app/.flutter-plugins
+field_photo_app/.flutter-plugins-dependencies
+field_photo_app/build/
+field_photo_app/.packages
+field_photo_app/pubspec.lock
+
+# Android
+field_photo_app/android/.gradle/
+field_photo_app/android/local.properties
+field_photo_app/android/key.properties

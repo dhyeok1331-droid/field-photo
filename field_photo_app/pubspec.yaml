@@ -1,0 +1,38 @@
+name: field_photo_app
+description: "농업현장점검 사진촬영 앱"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  camera: ^0.11.0
+  geolocator: ^13.0.0
+  flutter_compass: ^0.8.0
+  flutter_map: ^7.0.0
+  latlong2: ^0.9.0
+  http: ^1.2.0
+  image: ^4.1.0
+  path_provider: ^2.1.0
+  permission_handler: ^11.3.0
+  gal: ^2.3.0
+  intl: ^0.19.0
+  shared_preferences: ^2.2.0
+  flutter_secure_storage: ^9.0.0
+  sqflite: ^2.3.0
+  path: ^1.9.0
+  # speech_to_text: Gradle 9 미호환, 텍스트 입력으로 대체
+  mailer: ^6.1.0
+  excel: ^4.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
