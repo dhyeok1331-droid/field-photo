@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../utils/geo_utils.dart';
 
 class MapViewWidget extends StatefulWidget {
   final double? lat;
@@ -12,6 +13,7 @@ class MapViewWidget extends StatefulWidget {
   final bool cadastralVisible;
   final bool autoRotate;
   final int centerRequestSeq;
+  final List<LatLng>? selectedBoundary;
   final void Function(double lat, double lng) onMapTap;
 
   const MapViewWidget({
@@ -22,6 +24,7 @@ class MapViewWidget extends StatefulWidget {
     required this.cadastralVisible,
     required this.autoRotate,
     required this.centerRequestSeq,
+    this.selectedBoundary,
     required this.onMapTap,
   });
 
@@ -34,6 +37,7 @@ class _MapViewWidgetState extends State<MapViewWidget> {
   final _mapController = MapController();
   LatLng? _tapMarker;
   bool _initialMoved = false;
+  double? _lastRotation;
 
   static const _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
@@ -71,14 +75,19 @@ class _MapViewWidgetState extends State<MapViewWidget> {
       _mapController.move(LatLng(widget.lat!, widget.lng!), 18);
     }
 
-    // 자동 회전: 방향 변경 시 지도 회전
-    if (widget.autoRotate && widget.heading != null &&
-        widget.heading != oldWidget.heading) {
-      _mapController.rotate(widget.heading!);
+    // 자동 회전(heading-up): 내가 바라보는 방향이 화면 위쪽이 되도록 지도를 반대로 회전.
+    // 미세 떨림 방지를 위해 2° 이상 변할 때만 회전.
+    if (widget.autoRotate && widget.heading != null) {
+      final target = -widget.heading!;
+      if (_lastRotation == null || angleDelta(target, _lastRotation!) >= 2) {
+        _lastRotation = target;
+        _mapController.rotate(target);
+      }
     }
 
     // 자동 회전 OFF 시 북쪽으로 복원
     if (!widget.autoRotate && oldWidget.autoRotate) {
+      _lastRotation = 0;
       _mapController.rotate(0);
     }
   }
@@ -130,6 +139,16 @@ class _MapViewWidgetState extends State<MapViewWidget> {
                   'https://api.vworld.kr/req/wmts/1.0.0/$_vworldKey/Hybrid/{z}/{y}/{x}.png',
               userAgentPackageName: 'com.fieldphoto.field_photo_app',
             ),
+            if (widget.selectedBoundary != null &&
+                widget.selectedBoundary!.length >= 3)
+              PolygonLayer(polygons: [
+                Polygon(
+                  points: widget.selectedBoundary!,
+                  color: const Color(0x33FF6B35),
+                  borderColor: const Color(0xFFFF6B35),
+                  borderStrokeWidth: 2.5,
+                ),
+              ]),
             MarkerLayer(markers: [
               if (gpsPoint != null)
                 Marker(

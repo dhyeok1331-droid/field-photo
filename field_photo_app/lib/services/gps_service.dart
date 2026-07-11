@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_compass/flutter_compass.dart';
+import '../utils/geo_utils.dart';
 
 class GpsService {
   StreamSubscription<Position>? _positionSub;
@@ -29,8 +30,10 @@ class GpsService {
 
     _compassSub = FlutterCompass.events?.listen((event) {
       if (event.heading != null) {
-        lastHeading = event.heading;
-        _headingController.add(event.heading!);
+        // 나침반 원본값은 미세하게 떨리므로 저주파 필터로 부드럽게 보간
+        final smoothed = smoothHeading(lastHeading, event.heading!);
+        lastHeading = smoothed;
+        _headingController.add(smoothed);
       }
     });
   }

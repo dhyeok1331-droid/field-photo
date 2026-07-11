@@ -17,4 +17,5 @@ field_photo_app/pubspec.lock
 # Android
 field_photo_app/android/.gradle/
 field_photo_app/android/local.properties
+field_photo_app/android/build/
 field_photo_app/android/key.properties

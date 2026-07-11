@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../models/field_record.dart';
 import '../models/mission_session.dart';
@@ -14,6 +15,7 @@ import '../services/mission_service.dart';
 import '../services/photo_service.dart';
 import '../services/record_service.dart';
 import '../services/voice_service.dart';
+import '../utils/geo_utils.dart';
 import '../widgets/map_view_widget.dart';
 import '../widgets/quick_capture_overlay.dart';
 import 'mission_screen.dart';
@@ -47,6 +49,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   ParcelInfo _currentParcel =
       const ParcelInfo(address: '위치를 수신하고 있습니다...', jimok: '');
   ParcelInfo _selectedParcel = const ParcelInfo(address: '', jimok: '');
+  List<LatLng>? _selectedBoundary;
 
   // ── 서비스 ──────────────────────────────────────────────
   final _gpsService = GpsService();
@@ -154,8 +157,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _onMapTap(double lat, double lng) async {
-    final info = await _geocodingService.reverseGeocode(lat, lng);
-    if (mounted) setState(() => _selectedParcel = info);
+    // 지번(주소·지목)과 필지 경계를 동시에 조회
+    final results = await Future.wait([
+      _geocodingService.reverseGeocode(lat, lng),
+      _geocodingService.fetchParcelBoundary(lat, lng),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _selectedParcel = results[0] as ParcelInfo;
+      _selectedBoundary = results[1] as List<LatLng>?;
+    });
   }
 
   Future<void> _capture() async {
@@ -622,6 +633,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           cadastralVisible: _cadastralVisible,
           autoRotate: _autoRotate,
           centerRequestSeq: _centerRequestSeq,
+          selectedBoundary: _selectedBoundary,
           onMapTap: _onMapTap,
         ),
         // 우측 오버레이 버튼 묶음
@@ -696,11 +708,68 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         fontWeight: FontWeight.w700,
                         color: _textPrimary),
                   ),
+                  _buildProximityChip(),
                 ],
               ),
             ),
           ),
       ],
+    );
+  }
+
+  /// 내 위치가 선택 필지 안/밖인지 + 밖이면 거리·방위를 표시.
+  /// 필지 경계나 GPS가 없으면 아무것도 표시하지 않는다.
+  Widget _buildProximityChip() {
+    final boundary = _selectedBoundary;
+    if (boundary == null ||
+        boundary.length < 3 ||
+        _lat == null ||
+        _lng == null) {
+      return const SizedBox.shrink();
+    }
+    final me = LatLng(_lat!, _lng!);
+    final inside = pointInPolygon(me, boundary);
+
+    final Color color;
+    final IconData icon;
+    final String text;
+    if (inside) {
+      color = _success;
+      icon = Icons.check_circle;
+      text = '선택 필지 안에 있습니다';
+    } else {
+      final centroid = polygonCentroid(boundary);
+      final meters = const Distance().as(LengthUnit.Meter, me, centroid);
+      final dir = bearing8Korean(bearingBetween(me, centroid));
+      color = _warning;
+      icon = Icons.warning_amber_rounded;
+      text = '선택 필지 밖 · 약 ${formatDistance(meters)} $dir';
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 5),
+            Text(
+              text,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
